@@ -4,16 +4,12 @@ PKG_NAME:=live555ProxyServerEx
 PKG_VERSION:=1.0.0
 PKG_RELEASE:=1
 
-# ----------------------------------------------------
-# 1. 下载 Live555 最新源码包
-# ----------------------------------------------------
+# Live555 源码地址
 LIVE555_SOURCE:=live555-latest.tar.gz
 LIVE555_SITE:=https://download.live555.com/
-PKG_HASH:=skip  # 忽略 MD5/SHA256 校验（因为 -latest 文件的哈希值会随官方更新而改变）
+PKG_HASH:=skip
 
-# ----------------------------------------------------
-# 2. 拉取 Live555ProxyServerEx 源码
-# ----------------------------------------------------
+# Live555ProxyServerEx 源码地址
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/andreymal/live555ProxyServerEx.git
 PKG_SOURCE_VERSION:=master
@@ -31,22 +27,25 @@ define Package/live555ProxyServerEx
 endef
 
 define Package/live555ProxyServerEx/description
-  Extended version of LIVE555 RTSP Proxy Server for OpenWrt.
+  Extended version of LIVE555 RTSP Proxy Server with config file and procd service support.
 endef
 
-# 准备阶段：下载并解压 live555 源码到编译目录中
+# ---------------------------------------------------------------------
+# 重点 1：标记配置文件，避免用户升级/重新安装 IPK 时覆盖用户自定义配置
+# ---------------------------------------------------------------------
+define Package/live555ProxyServerEx/conffiles
+/etc/live555proxy.conf
+endef
+
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	# 下载 Live555 源码
 	$(SCRIPT_DIR)/download.pl "$(DL_DIR)" "$(LIVE555_SOURCE)" "x" "$(LIVE555_SITE)"
-	# 解压到编译子目录 live/
 	mkdir -p $(PKG_BUILD_DIR)/live
 	$(TAR) -zxvf $(DL_DIR)/$(LIVE555_SOURCE) -C $(PKG_BUILD_DIR)/
 endef
 
-# 编译阶段：先交叉编译 Live555 静态库，再编译代理程序
 define Build/Compile
-	# 步骤 A: 交叉编译 LIVE555 基础库 (.a)
+	# 编译 LIVE555 静态库
 	cd $(PKG_BUILD_DIR)/live && \
 		./genMakefiles linux && \
 		$(MAKE) \
@@ -55,7 +54,7 @@ define Build/Compile
 			CFLAGS="$(TARGET_CFLAGS)" \
 			CXXFLAGS="$(TARGET_CXXFLAGS)"
 
-	# 步骤 B: 编译 Live555ProxyServerEx 并静态链接 Live555
+	# 编译 Live555ProxyServerEx
 	$(MAKE) -C $(PKG_BUILD_DIR) \
 		CC="$(TARGET_CC)" \
 		CXX="$(TARGET_CXX)" \
@@ -70,10 +69,21 @@ define Build/Compile
               -lpthread"
 endef
 
-# 安装阶段：将生成的二进制文件放入 OpenWrt 系统的 /usr/bin/
+# ---------------------------------------------------------------------
+# 重点 2：将可执行程序、配置文件和 procd 启动脚本一并打包进 IPK
+# ---------------------------------------------------------------------
 define Package/live555ProxyServerEx/install
+	# 1. 安装主程序到 /usr/bin/
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/live555ProxyServerEx $(1)/usr/bin/
+
+	# 2. 安装默认配置文件到 /etc/
+	$(INSTALL_DIR) $(1)/etc
+	$(INSTALL_CONF) ./files/live555proxy.conf $(1)/etc/live555proxy.conf
+
+	# 3. 安装 procd 启动脚本到 /etc/init.d/ 并赋予执行权限
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) ./files/live555proxy.init $(1)/etc/init.d/live555proxy
 endef
 
 $(eval $(call BuildPackage,live555ProxyServerEx))
